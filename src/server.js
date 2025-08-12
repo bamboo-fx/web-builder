@@ -37,7 +37,7 @@ html,body{height:100%}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Inter,system-ui,sans-serif;color:var(--color-primary);background:var(--color-neutral-1);line-height:1.5}
 a{color:var(--color-accent);text-decoration:none}
 a:hover{text-decoration:underline}
-.container{max-width:var(--content-max);margin:0 auto;padding:0 24px}
+ .container{max-width:min(98vw,2000px);margin:0 auto;padding:0 16px}
 .card{background:var(--color-secondary);border:1px solid var(--color-neutral-2);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.06)}
 .btn{display:inline-block;border-radius:12px;padding:12px 20px;font-weight:600;border:1px solid var(--color-primary);background:transparent;color:var(--color-primary);cursor:pointer;transition:transform .15s ease, box-shadow .15s ease}
 .btn:hover{transform:translateY(-1px)}
@@ -57,7 +57,7 @@ a:hover{text-decoration:underline}
 .reveal{opacity:0;transform:translateY(8px);transition:all .4s ease}
 .reveal.visible{opacity:1;transform:none}
 .spinner{border:3px solid #f3f3f3;border-top:3px solid var(--color-accent);border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite}
-.hidden{display:none}
+.hidden{display:none!important}
 @keyframes spin{to{transform:rotate(360deg)}}
 `;
 }
@@ -159,68 +159,64 @@ app.get('/', (req, res) => {
         <title>Webbers - Web App Builder</title>
         <style>
             ${themeCSS()}
-            .hero-form { margin-top: 24px; }
-            .examples { margin-top: 32px; }
-            .example { background: var(--color-neutral-1); border: 1px solid var(--color-neutral-2); padding: 12px 16px; border-radius: 10px; margin-bottom: 8px; font-size: 14px; color: #555; cursor: pointer; transition: background-color .2s ease; }
-            .example:hover { background: #f0f0f0; }
+            .container { max-width: min(99vw, 2000px); }
+            .hero { flex-direction: column; text-align: center; padding: 96px 0 64px; gap: 28px; }
+            .brand-hero { font-weight: 900; font-size: clamp(56px, 11vw, 104px); letter-spacing: -0.04em; line-height: 1.05; display: inline-block; padding-right: 0.08em; background: linear-gradient(90deg, var(--color-primary), var(--color-accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+            .headline { font-size: clamp(24px, 4vw, 36px); font-weight: 800; letter-spacing: -0.01em; }
+            .hero-form { margin-top: 8px; }
+            .input-shell { background: var(--color-secondary); border: 1px solid var(--color-neutral-2); border-radius: 16px; padding: 18px 64px 18px 18px; position: relative; box-shadow: 0 6px 26px rgba(0,0,0,.06); }
+            .prompt-row { display: block; }
+            .textarea-compact { width: 100%; resize: none; min-height: 3.6em; max-height: 6.4em; line-height: 1.35; padding: 2px 0 4px; border: none; outline: none; background: transparent; }
+            .btn-icon { width: 48px; height: 48px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-accent); background: var(--color-accent); color: #000; font-size: 20px; padding: 0; position: absolute; right: 8px; bottom: 8px; }
+            .btn-icon:hover { box-shadow: 0 10px 24px rgba(0,0,0,.08); }
+            .examples { margin-top: 28px; text-align: left; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+            .example { background: var(--color-neutral-1); border: 1px solid var(--color-neutral-2); padding: 12px 16px; border-radius: 12px; font-size: 14px; color: #555; cursor: pointer; transition: transform .15s ease, background-color .2s ease; }
+            .example:hover { background: #f0f0f0; transform: translateY(-1px); }
+            /* Hide header bar on home and remove top spacing */
+            .header { display: none !important; }
+            .page { padding-top: 0; }
         </style>
     </head>
     <body>
         <header class="header">
           <div class="container header-inner">
-            <div class="brand">🚀 Webbers</div>
-            <nav class="nav">
-              <a href="/debug">Dashboard</a>
-            </nav>
-            <div>
-              <a href="/" class="btn btn-primary">New App</a>
-            </div>
+            <div class="brand">Webbers</div>
+            <nav class="nav"></nav>
+            <div class="actions"></div>
           </div>
         </header>
         <main class="page">
           <div class="container">
             <section class="hero reveal">
-              <div style="flex:1">
-                <h1 class="headline">
-                  Build modern <span class="headline-italic">B2B</span> web apps with AI
-                </h1>
-                <p class="subtext">Describe your idea and watch it come to life.</p>
-                <div class="card hero-form" style="padding:24px;">
-                  <form id="promptForm">
-                    <textarea id="prompt" class="input" placeholder="Describe the web app you want to build..." required style="width:100%; height:150px; resize:vertical;"></textarea>
-                    <button type="submit" id="generateBtn" class="btn btn-primary" style="width:100%; margin-top:12px;">Generate Web App</button>
-                  </form>
-                </div>
-                <div class="examples reveal">
-                  <h3 style="margin-bottom:12px;">💡 Example ideas:</h3>
-                  <div class="example" onclick="fillExample('Create a simple calculator app with basic arithmetic operations')">
-                      Create a simple calculator app with basic arithmetic operations
+              <div class="brand-hero">Webbers</div>
+              <p class="headline">What will you build today?</p>
+              <p class="subtext">Describe your idea and watch it come to life.</p>
+              <div class="hero-form">
+                <form id="promptForm">
+                  <div class="input-shell">
+                    <div class="prompt-row">
+                      <textarea id="prompt" class="textarea-compact" rows="3" placeholder="Describe the web app you want to build..." required></textarea>
+                    </div>
+                    <button type="submit" id="generateBtn" class="btn btn-icon" aria-label="Generate">→</button>
                   </div>
-                  <div class="example" onclick="fillExample('Build a to-do list app with add, delete, and mark complete functionality')">
-                      Build a to-do list app with add, delete, and mark complete functionality
-                  </div>
-                  <div class="example" onclick="fillExample('Make a weather app that shows current conditions for a city')">
-                      Make a weather app that shows current conditions for a city
-                  </div>
-                  <div class="example" onclick="fillExample('Create a simple color picker tool with hex and RGB values')">
-                      Create a simple color picker tool with hex and RGB values
-                  </div>
-                </div>
+                </form>
+              </div>
+              <div class="examples reveal">
+                <div class="example" onclick="fillExample('Create a simple calculator app with basic arithmetic operations')">Create a simple calculator app with basic arithmetic operations</div>
+                <div class="example" onclick="fillExample('Build a to-do list app with add, delete, and mark complete functionality')">Build a to-do list app with add, delete, and mark complete functionality</div>
+                <div class="example" onclick="fillExample('Make a weather app that shows current conditions for a city')">Make a weather app that shows current conditions for a city</div>
+                <div class="example" onclick="fillExample('Create a simple color picker tool with hex and RGB values')">Create a simple color picker tool with hex and RGB values</div>
               </div>
             </section>
           </div>
         </main>
 
         <script>
-            function fillExample(text) {
-                document.getElementById('prompt').value = text;
-            }
+            function fillExample(text) { document.getElementById('prompt').value = text; }
             document.getElementById('promptForm').addEventListener('submit', (e) => {
                 e.preventDefault();
                 const prompt = document.getElementById('prompt').value.trim();
-                if (prompt) {
-                    window.location.href = \`/build?prompt=\${encodeURIComponent(prompt)}\`;
-                }
+                if (prompt) { window.location.href = \`/build?prompt=\${encodeURIComponent(prompt)}\`; }
             });
             const onIntersect = (entries) => { entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }); };
             const observer = new IntersectionObserver(onIntersect, { threshold: 0.1 });
@@ -246,7 +242,7 @@ app.get('/build', (req, res) => {
             ${themeCSS()}
             body { background: var(--color-neutral-1); }
             .header { position: static; }
-            .main-container { display: flex; height: calc(100vh - 64px); }
+            .main-container { display: flex; height: calc(100vh - 64px); overflow: hidden; }
             .left-panel { width: 420px; background: var(--color-secondary); border-right: 1px solid var(--color-neutral-2); display: flex; flex-direction: column; }
             .prompt-section { padding: 16px; border-bottom: 1px solid var(--color-neutral-2); background: var(--color-secondary); }
             .prompt-text { font-size: 14px; color: #333; line-height: 1.4; margin: 0; }
@@ -258,13 +254,13 @@ app.get('/build', (req, res) => {
             .log-time { font-size: 12px; opacity: 0.7; margin-bottom: 4px; }
             .right-panel { flex: 1; background: var(--color-secondary); position: relative; }
             .app-preview { width: 100%; height: 100%; border: none; }
-            .preview-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #666; font-size: 1.2rem; text-align: center; padding: 2rem; flex-direction: column; }
+            .preview-placeholder { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#666; font-size:1.2rem; text-align:center; padding:2rem; flex-direction:column; background: var(--color-secondary); }
         </style>
     </head>
     <body>
         <div class="header">
-          <div class="container header-inner">
-            <h1 style="font-size:18px;">🚀 Webbers</h1>
+          <div class="header-inner" style="padding: 0 24px;">
+            <h1 style="font-size:18px;">Webbers</h1>
             <a href="/" class="btn btn-secondary">← New App</a>
           </div>
         </div>
@@ -328,6 +324,8 @@ app.get('/build', (req, res) => {
                 const appFrame = document.getElementById('appFrame');
                 
                 clearLogs();
+                placeholder.classList.remove('hidden');
+                appFrame.classList.add('hidden');
                 
                 try {
                     // Start build process
@@ -351,8 +349,12 @@ app.get('/build', (req, res) => {
                             if (logData.type === 'complete') {
                                 // Load the app in iframe
                                 appFrame.src = \`/apps/\${currentAppId}/\`;
-                                appFrame.classList.remove('hidden');
-                                placeholder.classList.add('hidden');
+                                appFrame.onload = () => {
+                                  appFrame.classList.remove('hidden');
+                                  placeholder.classList.add('hidden');
+                                  appFrame.contentWindow?.focus?.();
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                };
                                 eventSource.close();
                                 addLog(logData.message, logData.type);
                             } else {
@@ -618,7 +620,7 @@ app.get('/debug/apps/:appId/code', (req, res) => {
             .header-left h1 { font-size: 20px; margin: 0; }
             .header-left .subtitle { color: #666; font-size: 14px; }
             .header-actions { display: flex; gap: 8px; }
-            .container { max-width: var(--content-max); margin: 0 auto; padding: 24px; }
+            .container { max-width: clamp(1200px, 92vw, 1400px); margin: 0 auto; padding: 24px; }
             .prompt-section { background: var(--color-secondary); padding: 16px; border-radius: 12px; margin-bottom: 24px; border: 1px solid var(--color-neutral-2); box-shadow: 0 2px 12px rgba(0,0,0,.05); }
             .prompt-section h3 { margin: 0 0 8px; font-size: 16px; }
             .prompt-text { color: #555; font-style: italic; line-height: 1.5; }
@@ -714,25 +716,19 @@ app.get('/debug/apps/:appId/download', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="webbers-app-${appId}.zip"`);
   
   // Create ZIP archive
-  const archive = archiver('zip', {
-    zlib: { level: 9 } // Maximum compression
-  });
+  const archive = archiver('zip', { zlib: { level: 9 } });
   
-  // Handle archive errors
   archive.on('error', (err) => {
     console.error('Archive error:', err);
     res.status(500).send('Error creating ZIP file');
   });
   
-  // Pipe archive to response
   archive.pipe(res);
   
-  // Add app files to archive
   Object.entries(appDetails.files).forEach(([filename, content]) => {
     archive.append(content, { name: filename });
   });
   
-  // Add metadata file
   const metadata = {
     appId: appDetails.appId,
     createdAt: new Date(appDetails.createdAt).toISOString(),
@@ -740,32 +736,11 @@ app.get('/debug/apps/:appId/download', (req, res) => {
     generatedBy: "Webbers - AI Web App Builder",
     files: Object.keys(appDetails.files)
   };
-  
   archive.append(JSON.stringify(metadata, null, 2), { name: 'webbers-metadata.json' });
   
-  // Add README
-  const readme = `# ${appId} - Generated Web App
-
-## About
-This web app was generated by Webbers, an AI-powered web app builder.
-
-**Created:** ${new Date(appDetails.createdAt).toLocaleString()}
-**Prompt:** "${appDetails.prompt}"
-
-## Files
-${Object.keys(appDetails.files).map(file => `- ${file}`).join('\n')}
-
-## Usage
-1. Open \`index.html\` in a web browser
-2. Or serve with any HTTP server (e.g., \`python -m http.server\`)
-
-## Generated by
-🚀 Webbers - AI Web App Builder
-`;
-  
+  const readme = `# ${appId} - Generated Web App\n\n## About\nThis web app was generated by Webbers, an AI-powered web app builder.\n\n**Created:** ${new Date(appDetails.createdAt).toLocaleString()}\n**Prompt:** "${appDetails.prompt}"\n\n## Files\n${Object.keys(appDetails.files).map(file => `- ${file}`).join('\n')}\n\n## Usage\n1. Open \`index.html\` in a web browser\n2. Or serve with any HTTP server (e.g., \`python -m http.server\`)\n\n## Generated by\nWebbers - AI Web App Builder\n`;
   archive.append(readme, { name: 'README.md' });
   
-  // Finalize the archive
   archive.finalize();
 });
 
@@ -785,17 +760,9 @@ app.post('/build-with-logs', async (req, res) => {
   }
 
   const userIP = getUserIP(req);
-  
-  // Generate app ID immediately and return it
   const appId = crypto.randomUUID().slice(0, 8);
-  
-  // Return the app ID immediately so client can connect to stream
   res.json({ success: true, appId, building: true });
-  
-  // Start building in background
-  setTimeout(() => {
-    buildWebAppWithLogs(prompt, userIP, appId);
-  }, 100); // Small delay to ensure client connects to stream first
+  setTimeout(() => { buildWebAppWithLogs(prompt, userIP, appId); }, 100);
 });
 
 app.listen(PORT, () => {
