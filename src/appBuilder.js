@@ -1,11 +1,14 @@
 import OpenAI from 'openai';
 import crypto from 'crypto';
 
-// In-memory storage for apps (much more scalable)
+// In-memory storage for generated apps
 const apps = new Map();
 const APP_EXPIRY_TIME = 60 * 60 * 1000; // 1 hour
-const MAX_APPS_TOTAL = 1000; // Global limit
-const MAX_APPS_PER_IP = 10; // Per IP limit
+
+// Auto cleanup every 15 minutes
+setInterval(() => {
+  cleanupExpiredApps();
+}, 15 * 60 * 1000);
 
 function sendLog(appId, message, type = 'log') {
   if (global.buildStreams && global.buildStreams[appId]) {
@@ -14,71 +17,101 @@ function sendLog(appId, message, type = 'log') {
   console.log(`[${appId}] ${message}`);
 }
 
-// Cleanup expired apps
-function cleanupExpiredApps() {
-  const now = Date.now();
-  let cleaned = 0;
-  
-  for (const [appId, appData] of apps.entries()) {
-    if (now - appData.createdAt > APP_EXPIRY_TIME) {
-      apps.delete(appId);
-      cleaned++;
-    }
-  }
-  
-  if (cleaned > 0) {
-    console.log(`🧹 Cleaned up ${cleaned} expired apps. Active apps: ${apps.size}`);
-  }
-}
-
-// Auto cleanup every 10 minutes
-setInterval(cleanupExpiredApps, 10 * 60 * 1000);
-
 // Generate proper app ID
 function generateAppId() {
   return crypto.randomUUID().slice(0, 8); // Short, unique ID
 }
 
-// Store app in memory
-function storeApp(appId, files, prompt, userIP) {
-  const appData = {
-    appId,
-    files,
-    prompt,
-    userIP,
-    createdAt: Date.now(),
-    lastAccessed: Date.now()
-  };
-  
-  apps.set(appId, appData);
-  console.log(`📱 Stored app ${appId}. Total apps: ${apps.size}`);
-  return appData;
-}
-
-// Get app from memory
-export function getApp(appId) {
+// Get app URL for in-memory stored app
+export function getAppUrl(appId) {
   const app = apps.get(appId);
-  if (app) {
-    app.lastAccessed = Date.now(); // Update access time
-    return app;
+  if (!app) {
+    return null;
   }
-  return null;
+  
+  // Update last accessed time
+  app.lastAccessed = Date.now();
+  
+  // Return the local server URL for this app
+  return `/apps/${appId}/`;
 }
 
-// Check limits before creating app
-function checkLimits(userIP) {
-  // Cleanup first
-  cleanupExpiredApps();
-  
-  // Check global limit
-  if (apps.size >= MAX_APPS_TOTAL) {
-    throw new Error('Server capacity reached. Please try again later.');
+// Get app files from memory
+export function getAppFiles(appId) {
+  const app = apps.get(appId);
+  if (!app) {
+    return null;
   }
   
-  // Check per-IP limit
-  const userApps = Array.from(apps.values()).filter(app => app.userIP === userIP);
-  if (userApps.length >= MAX_APPS_PER_IP) {
-    throw new Error(`You have reached the limit of ${MAX_APPS_PER_IP} apps. Please wait for them to expire.`);
+  // Update last accessed time
+  app.lastAccessed = Date.now();
+  
+  return app.files;
+}
+
+// Delete an app from memory
+export function deleteApp(appId) {
+  const app = apps.get(appId);
+  if (!app) {
+    return false;
+  }
+  
+  apps.delete(appId);
+  console.log(`🗑️ Manually deleted app ${appId}`);
+  return true;
+}
+
+// Get app details including prompt
+export function getAppDetails(appId) {
+  const app = apps.get(appId);
+  if (!app) {
+    return null;
+  }
+  
+  // Update last accessed time
+  app.lastAccessed = Date.now();
+  
+  return {
+    appId: app.appId,
+    createdAt: app.createdAt,
+    lastAccessed: app.lastAccessed,
+    userIP: app.userIP,
+    prompt: app.prompt,
+    files: app.files,
+    fileCount: Object.keys(app.files).length
+  };
+}
+
+// Get stats for debugging
+export function getAppStats() {
+  return {
+    totalApps: apps.size,
+    appIds: Array.from(apps.keys()),
+    apps: Array.from(apps.entries()).map(([appId, app]) => ({
+      appId,
+      createdAt: new Date(app.createdAt).toISOString(),
+      lastAccessed: new Date(app.lastAccessed).toISOString(),
+      fileCount: Object.keys(app.files).length,
+      userIP: app.userIP,
+      prompt: app.prompt ? app.prompt.substring(0, 100) + (app.prompt.length > 100 ? '...' : '') : 'No prompt'
+    }))
+  };
+}
+
+// Clean up expired apps
+function cleanupExpiredApps() {
+  const now = Date.now();
+  let cleaned = 0;
+
+  for (const [appId, app] of apps.entries()) {
+    if (now - app.createdAt > APP_EXPIRY_TIME) {
+      apps.delete(appId);
+      cleaned++;
+    }
+  }
+
+  if (cleaned > 0) {
+    console.log(`🧹 Cleaned up ${cleaned} expired apps. Active: ${apps.size}`);
   }
 }
 
@@ -86,21 +119,49 @@ export async function buildWebAppWithLogs(prompt, userIP, predefinedAppId = null
   const appId = predefinedAppId || generateAppId();
   
   try {
-    sendLog(appId, 'Checking resource limits...');
-    checkLimits(userIP);
-    
+    sendLog(appId, 'Starting web app generation...');
     sendLog(appId, 'Initializing OpenAI client...');
     
     const result = await buildWebApp(prompt, appId, userIP);
     
     if (result.success) {
-      sendLog(appId, 'Web app built successfully!', 'success');
+      sendLog(appId, 'Storing app in memory...');
+      
+      // Store app in memory
+      const app = {
+        appId,
+        files: result.files,
+        createdAt: Date.now(),
+        lastAccessed: Date.now(),
+        userIP,
+        prompt
+      };
+      
+      apps.set(appId, app);
+      
+      sendLog(appId, 'Web app stored successfully!', 'success');
       sendLog(appId, `App completed with ID: ${appId}`, 'complete');
+      
+      // Enhanced console logging with clickable URLs
+      console.log(`\n🎉 New app created successfully!`);
+      console.log(`   📱 App ID: ${appId}`);
+      console.log(`   🔗 View App: http://localhost:3000/apps/${appId}/`);
+      console.log(`   📝 View Code: http://localhost:3000/debug/apps/${appId}/code`);
+      console.log(`   💾 Download: http://localhost:3000/debug/apps/${appId}/download`);
+      console.log(`   📊 Dashboard: http://localhost:3000/debug`);
+      console.log(`   📄 Files: ${Object.keys(result.files).join(', ')}\n`);
+      
+      return {
+        success: true,
+        appId,
+        url: `/apps/${appId}/`,
+        files: Object.keys(result.files)
+      };
     } else {
       sendLog(appId, `Error: ${result.error}`, 'error');
+      return result;
     }
     
-    return result;
   } catch (error) {
     sendLog(appId, `Build failed: ${error.message}`, 'error');
     return { success: false, error: error.message, appId };
@@ -149,15 +210,12 @@ Make the app fully functional and ready to run. Use modern web standards and ens
     const files = extractFiles(response);
     sendLog(appId, `Extracted ${Object.keys(files).length} files from response`);
     
-    sendLog(appId, 'Storing app in memory...');
-    storeApp(appId, files, prompt, userIP);
-    
-    sendLog(appId, 'App generation completed!');
+    sendLog(appId, 'Code generation completed!');
     
     return {
       success: true,
       appId,
-      files: Object.keys(files)
+      files: files
     };
 
   } catch (error) {

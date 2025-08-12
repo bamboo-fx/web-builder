@@ -2,7 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import crypto from 'crypto';
-import { buildWebApp, buildWebAppWithLogs, getApp } from './appBuilder.js';
+import archiver from 'archiver';
+import { buildWebApp, buildWebAppWithLogs, getAppUrl, getAppFiles, getAppStats, deleteApp, getAppDetails } from './appBuilder.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -19,51 +20,78 @@ function getUserIP(req) {
   return req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
 }
 
-// Dynamic app serving endpoints (replaces static file serving)
-app.get('/apps/:appId/', (req, res) => {
+// Get MIME type for files
+function getMimeType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  const mimeTypes = {
+    '.html': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon'
+  };
+  return mimeTypes[ext] || 'text/plain';
+}
+
+// Direct file serving from memory storage
+app.get('/apps/:appId/*', (req, res) => {
   const { appId } = req.params;
-  const app = getApp(appId);
+  const requestedFile = req.params[0] || 'index.html';
   
-  if (!app) {
-    return res.status(404).send(`
+  try {
+    const appFiles = getAppFiles(appId);
+    
+    if (!appFiles) {
+      return res.status(404).send(`
+        <div style="font-family: system-ui; text-align: center; margin-top: 50px;">
+          <h2>App Not Found</h2>
+          <p>This app may have expired or doesn't exist.</p>
+          <a href="/" style="color: #007AFF;">← Create New App</a>
+        </div>
+      `);
+    }
+    
+    // Handle root request - serve index.html
+    let filename = requestedFile;
+    if (filename === '' || filename === '/') {
+      filename = 'index.html';
+    }
+    
+    // Check if file exists in memory
+    if (!appFiles[filename]) {
+      return res.status(404).send(`
+        <div style="font-family: system-ui; text-align: center; margin-top: 50px;">
+          <h2>File Not Found</h2>
+          <p>The requested file "${filename}" doesn't exist in this app.</p>
+          <p>Available files: ${Object.keys(appFiles).join(', ')}</p>
+          <a href="/apps/${appId}/" style="color: #007AFF;">← Back to App</a>
+        </div>
+      `);
+    }
+    
+    // Serve the file content with proper MIME type
+    const mimeType = getMimeType(filename);
+    const content = appFiles[filename];
+    
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'no-cache'); // Prevent caching during development
+    res.send(content);
+    
+  } catch (error) {
+    console.error(`Error serving file ${requestedFile} for app ${appId}:`, error);
+    res.status(500).send(`
       <div style="font-family: system-ui; text-align: center; margin-top: 50px;">
-        <h2>App Not Found</h2>
-        <p>This app may have expired or doesn't exist.</p>
+        <h2>Server Error</h2>
+        <p>Unable to load the requested file.</p>
         <a href="/" style="color: #007AFF;">← Create New App</a>
       </div>
     `);
   }
-  
-  // Serve the HTML file
-  const html = app.files['index.html'] || '<h1>No HTML file found</h1>';
-  res.setHeader('Content-Type', 'text/html');
-  res.send(html);
-});
-
-app.get('/apps/:appId/:filename', (req, res) => {
-  const { appId, filename } = req.params;
-  const app = getApp(appId);
-  
-  if (!app) {
-    return res.status(404).send('App not found or expired');
-  }
-  
-  const fileContent = app.files[filename];
-  if (!fileContent) {
-    return res.status(404).send('File not found');
-  }
-  
-  // Set appropriate content type
-  const ext = path.extname(filename);
-  const contentTypes = {
-    '.html': 'text/html',
-    '.css': 'text/css',
-    '.js': 'application/javascript',
-    '.json': 'application/json'
-  };
-  
-  res.setHeader('Content-Type', contentTypes[ext] || 'text/plain');
-  res.send(fileContent);
 });
 
 // Front page with prompt input
@@ -519,35 +547,505 @@ app.get('/build-stream/:appId', (req, res) => {
   });
 });
 
-// Debug endpoint to see apps in memory
+// Apps Dashboard - Main debug page
+app.get('/debug', (req, res) => {
+  const stats = getAppStats();
+  
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Webbers - Apps Dashboard</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: #f5f5f5;
+                min-height: 100vh;
+            }
+            .header {
+                background: white;
+                padding: 2rem;
+                border-bottom: 1px solid #ddd;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            h1 { color: #333; font-size: 2rem; margin-bottom: 0.5rem; }
+            .subtitle { color: #666; font-size: 1.1rem; }
+            .stats {
+                display: flex;
+                gap: 1rem;
+                margin: 1rem 0;
+            }
+            .stat {
+                background: #e3f2fd;
+                color: #1565c0;
+                padding: 0.5rem 1rem;
+                border-radius: 8px;
+                font-size: 14px;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 2rem;
+            }
+            .apps-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                gap: 1.5rem;
+                margin-top: 2rem;
+            }
+            .app-card {
+                background: white;
+                border-radius: 12px;
+                padding: 1.5rem;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                transition: transform 0.2s ease, box-shadow 0.2s ease;
+            }
+            .app-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            }
+            .app-id {
+                font-family: 'Monaco', 'Menlo', monospace;
+                font-size: 18px;
+                font-weight: 600;
+                color: #333;
+                margin-bottom: 0.5rem;
+            }
+            .app-meta {
+                font-size: 12px;
+                color: #666;
+                margin-bottom: 1rem;
+            }
+            .app-actions {
+                display: flex;
+                gap: 0.5rem;
+                flex-wrap: wrap;
+            }
+            .btn {
+                padding: 6px 12px;
+                border: none;
+                border-radius: 6px;
+                font-size: 12px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: background-color 0.2s ease;
+            }
+            .btn-primary { background: #007AFF; color: white; }
+            .btn-secondary { background: #f8f9fa; color: #333; border: 1px solid #dee2e6; }
+            .btn-danger { background: #dc3545; color: white; }
+            .btn:hover { opacity: 0.8; }
+            .empty-state {
+                text-align: center;
+                padding: 4rem 2rem;
+                color: #666;
+            }
+            .refresh-btn {
+                background: #28a745;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                margin-left: 1rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="container">
+                <h1>🚀 Webbers Dashboard</h1>
+                <p class="subtitle">Manage your generated web apps</p>
+                <div class="stats">
+                    <div class="stat">📱 ${stats.totalApps} Active Apps</div>
+                    <div class="stat">📊 ${Object.keys(global.buildStreams || {}).length} Building</div>
+                    <div class="stat">🕐 Auto-cleanup: 1 hour</div>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <a href="/" class="btn btn-primary">Create New App</a>
+                    <button onclick="location.reload()" class="refresh-btn">Refresh</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="container">
+            ${stats.totalApps === 0 ? `
+                <div class="empty-state">
+                    <h3>No apps created yet</h3>
+                    <p>Create your first web app to see it here</p>
+                    <a href="/" class="btn btn-primary" style="margin-top: 1rem;">Create App</a>
+                </div>
+            ` : `
+                <div class="apps-grid">
+                    ${stats.apps.map(app => `
+                        <div class="app-card">
+                            <div class="app-id">${app.appId}</div>
+                            <div class="app-meta">
+                                <strong>Prompt:</strong> "${app.prompt}"<br>
+                                Created: ${new Date(app.createdAt).toLocaleString()}<br>
+                                Files: ${app.fileCount} | Last accessed: ${new Date(app.lastAccessed).toLocaleString()}
+                            </div>
+                            <div class="app-actions">
+                                <a href="/apps/${app.appId}/" class="btn btn-primary" target="_blank">View App</a>
+                                <a href="/debug/apps/${app.appId}/code" class="btn btn-secondary">View Code</a>
+                                <a href="/debug/apps/${app.appId}/download" class="btn btn-secondary">Download</a>
+                                <button onclick="deleteApp('${app.appId}')" class="btn btn-danger">Delete</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `}
+        </div>
+        
+        <script>
+            async function deleteApp(appId) {
+                if (confirm(\`Delete app \${appId}? This cannot be undone.\`)) {
+                    try {
+                        const response = await fetch(\`/debug/apps/\${appId}\`, { method: 'DELETE' });
+                        if (response.ok) {
+                            location.reload();
+                        } else {
+                            alert('Failed to delete app');
+                        }
+                    } catch (error) {
+                        alert('Error deleting app: ' + error.message);
+                    }
+                }
+            }
+        </script>
+    </body>
+    </html>
+  `);
+});
+
+// JSON API endpoint for apps list
 app.get('/debug/apps', (req, res) => {
+  const stats = getAppStats();
   res.json({
-    message: "Check server logs for app data, or visit /debug/apps/:appId to test specific apps",
+    message: "In-memory stored apps",
     totalStreams: Object.keys(global.buildStreams || {}).length,
     activeStreams: Object.keys(global.buildStreams || {}),
     serverTime: new Date().toISOString(),
-    instructions: "Look at terminal logs for completed apps, then visit /debug/apps/[APP_ID] to inspect"
+    appStats: stats,
+    instructions: "Each app is stored in server memory and auto-cleaned after 1 hour"
   });
 });
 
+// Get app details
 app.get('/debug/apps/:appId', (req, res) => {
   const { appId } = req.params;
-  const app = getApp(appId);
+  const appUrl = getAppUrl(appId);
+  const appFiles = getAppFiles(appId);
   
-  if (!app) {
+  if (!appFiles) {
     return res.json({ error: 'App not found', appId });
   }
   
   res.json({
-    appId: app.appId,
-    prompt: app.prompt,
-    userIP: app.userIP,
-    createdAt: new Date(app.createdAt).toISOString(),
-    lastAccessed: new Date(app.lastAccessed).toISOString(),
-    files: Object.keys(app.files),
-    hasIndexHtml: !!app.files['index.html'],
-    indexHtmlLength: app.files['index.html']?.length || 0
+    appId,
+    url: appUrl,
+    status: 'active',
+    files: Object.keys(appFiles),
+    accessUrl: `/apps/${appId}/`
   });
+});
+
+// Get app files as JSON
+app.get('/debug/apps/:appId/files', (req, res) => {
+  const { appId } = req.params;
+  const appFiles = getAppFiles(appId);
+  
+  if (!appFiles) {
+    return res.status(404).json({ error: 'App not found', appId });
+  }
+  
+  res.json({
+    appId,
+    files: appFiles
+  });
+});
+
+// Delete an app
+app.delete('/debug/apps/:appId', (req, res) => {
+  const { appId } = req.params;
+  
+  const deleted = deleteApp(appId);
+  
+  if (!deleted) {
+    return res.status(404).json({ error: 'App not found', appId });
+  }
+  
+  res.json({ message: 'App deleted successfully', appId });
+});
+
+// Code viewer page
+app.get('/debug/apps/:appId/code', (req, res) => {
+  const { appId } = req.params;
+  const appDetails = getAppDetails(appId);
+  
+  if (!appDetails) {
+    return res.status(404).send(`
+      <div style="font-family: system-ui; text-align: center; margin-top: 50px;">
+        <h2>App Not Found</h2>
+        <p>App ${appId} may have expired or doesn't exist.</p>
+        <a href="/debug" style="color: #007AFF;">← Back to Dashboard</a>
+      </div>
+    `);
+  }
+  
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Code Viewer - ${appId}</title>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet">
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: #f5f5f5;
+                min-height: 100vh;
+            }
+            .header {
+                background: white;
+                padding: 1.5rem 2rem;
+                border-bottom: 1px solid #ddd;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            }
+            .header-left h1 {
+                color: #333;
+                font-size: 1.5rem;
+                margin-bottom: 0.25rem;
+            }
+            .header-left .subtitle {
+                color: #666;
+                font-size: 14px;
+            }
+            .header-actions {
+                display: flex;
+                gap: 0.5rem;
+            }
+            .btn {
+                padding: 8px 16px;
+                border: none;
+                border-radius: 6px;
+                font-size: 14px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                transition: background-color 0.2s ease;
+            }
+            .btn-primary { background: #007AFF; color: white; }
+            .btn-secondary { background: #f8f9fa; color: #333; border: 1px solid #dee2e6; }
+            .btn:hover { opacity: 0.8; }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 2rem;
+            }
+            .prompt-section {
+                background: white;
+                padding: 1.5rem;
+                border-radius: 8px;
+                margin-bottom: 2rem;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }
+            .prompt-section h3 {
+                color: #333;
+                margin-bottom: 0.5rem;
+                font-size: 1.1rem;
+            }
+            .prompt-text {
+                color: #555;
+                font-style: italic;
+                line-height: 1.5;
+            }
+            .files-section {
+                display: grid;
+                gap: 2rem;
+            }
+            .file-card {
+                background: white;
+                border-radius: 8px;
+                overflow: hidden;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }
+            .file-header {
+                background: #f8f9fa;
+                padding: 1rem 1.5rem;
+                border-bottom: 1px solid #dee2e6;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            }
+            .file-name {
+                font-family: 'Monaco', 'Menlo', monospace;
+                font-weight: 600;
+                color: #333;
+            }
+            .copy-btn {
+                background: #28a745;
+                color: white;
+                border: none;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 12px;
+                cursor: pointer;
+            }
+            .file-content {
+                max-height: 500px;
+                overflow-y: auto;
+            }
+            .file-content pre {
+                margin: 0 !important;
+                padding: 1.5rem !important;
+                background: #fafafa !important;
+            }
+            .file-content code {
+                font-size: 13px;
+                line-height: 1.5;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="header-left">
+                <h1>📝 Code Viewer</h1>
+                <div class="subtitle">App ID: ${appId} | Created: ${new Date(appDetails.createdAt).toLocaleString()}</div>
+            </div>
+            <div class="header-actions">
+                <a href="/apps/${appId}/" class="btn btn-primary" target="_blank">View App</a>
+                <a href="/debug/apps/${appId}/download" class="btn btn-secondary">Download</a>
+                <a href="/debug" class="btn btn-secondary">← Dashboard</a>
+            </div>
+        </div>
+        
+        <div class="container">
+            <div class="prompt-section">
+                <h3>Original Prompt</h3>
+                <div class="prompt-text">"${appDetails.prompt || 'No prompt available'}"</div>
+            </div>
+            
+            <div class="files-section">
+                ${Object.entries(appDetails.files).map(([filename, content]) => {
+                  const language = filename.endsWith('.html') ? 'html' : 
+                                 filename.endsWith('.css') ? 'css' : 
+                                 filename.endsWith('.js') ? 'javascript' : 'text';
+                  
+                  return `
+                    <div class="file-card">
+                        <div class="file-header">
+                            <div class="file-name">${filename}</div>
+                            <button class="copy-btn" onclick="copyToClipboard('${filename}', \`${content.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)">Copy</button>
+                        </div>
+                        <div class="file-content">
+                            <pre><code class="language-${language}">${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
+                        </div>
+                    </div>
+                  `;
+                }).join('')}
+            </div>
+        </div>
+        
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+        
+        <script>
+            function copyToClipboard(filename, content) {
+                navigator.clipboard.writeText(content).then(() => {
+                    const btn = event.target;
+                    const originalText = btn.textContent;
+                    btn.textContent = 'Copied!';
+                    btn.style.background = '#28a745';
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.style.background = '#28a745';
+                    }, 2000);
+                }).catch(err => {
+                    alert('Failed to copy to clipboard');
+                });
+            }
+        </script>
+    </body>
+    </html>
+  `);
+});
+
+// Download app as ZIP
+app.get('/debug/apps/:appId/download', (req, res) => {
+  const { appId } = req.params;
+  const appDetails = getAppDetails(appId);
+  
+  if (!appDetails) {
+    return res.status(404).json({ error: 'App not found', appId });
+  }
+  
+  // Set headers for ZIP download
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="webbers-app-${appId}.zip"`);
+  
+  // Create ZIP archive
+  const archive = archiver('zip', {
+    zlib: { level: 9 } // Maximum compression
+  });
+  
+  // Handle archive errors
+  archive.on('error', (err) => {
+    console.error('Archive error:', err);
+    res.status(500).send('Error creating ZIP file');
+  });
+  
+  // Pipe archive to response
+  archive.pipe(res);
+  
+  // Add app files to archive
+  Object.entries(appDetails.files).forEach(([filename, content]) => {
+    archive.append(content, { name: filename });
+  });
+  
+  // Add metadata file
+  const metadata = {
+    appId: appDetails.appId,
+    createdAt: new Date(appDetails.createdAt).toISOString(),
+    prompt: appDetails.prompt,
+    generatedBy: "Webbers - AI Web App Builder",
+    files: Object.keys(appDetails.files)
+  };
+  
+  archive.append(JSON.stringify(metadata, null, 2), { name: 'webbers-metadata.json' });
+  
+  // Add README
+  const readme = `# ${appId} - Generated Web App
+
+## About
+This web app was generated by Webbers, an AI-powered web app builder.
+
+**Created:** ${new Date(appDetails.createdAt).toLocaleString()}
+**Prompt:** "${appDetails.prompt}"
+
+## Files
+${Object.keys(appDetails.files).map(file => `- ${file}`).join('\n')}
+
+## Usage
+1. Open \`index.html\` in a web browser
+2. Or serve with any HTTP server (e.g., \`python -m http.server\`)
+
+## Generated by
+🚀 Webbers - AI Web App Builder
+`;
+  
+  archive.append(readme, { name: 'README.md' });
+  
+  // Finalize the archive
+  archive.finalize();
 });
 
 // Build web app with streaming logs
@@ -581,9 +1079,10 @@ app.post('/build-with-logs', async (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🚀 Webbers server running at http://localhost:${PORT}`);
-    console.log('📱 In-memory app storage (scalable & fast)');
+    console.log('💾 Using in-memory storage (simple & fast)');
     console.log('🧹 Auto-cleanup: Apps expire after 1 hour');
-    console.log('🛡️  Rate limits: 10 apps per IP, 1000 total');
+    console.log('⚡ Apps served directly from server memory');
+    console.log('📊 Debug: /debug/apps');
     
     if (!process.env.OPENAI_API_KEY) {
         console.log('⚠️  Warning: OPENAI_API_KEY not found in environment variables');
