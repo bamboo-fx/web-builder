@@ -1,0 +1,80 @@
+{
+    "design_style": {
+        "theme": "Minimalist, modern B2B marketing aesthetic",
+        "color_palette": {
+            "primary": "#000000",
+            "secondary": "#FFFFFF",
+            "accent": "#00FF85",
+            "neutral_tones": [
+                "#F7F7F7",
+                "#EAEAEA"
+            ]
+        },
+        "typography": {
+            "headline": {
+                "font_family": "Sans-serif (geometric/modern) + Serif italic pairing",
+                "weight": "Bold for sans-serif, Regular Italic for serif",
+                "size": "Very large (~72px) for hero section headlines",
+                "line_height": "110%"
+            },
+            "body": {
+                "font_family": "Sans-serif",
+                "weight": "Regular",
+                "size": "16px",
+                "line_height": "150%"
+            }
+        },
+        "imagery": {
+            "style": "High-contrast grayscale photography",
+            "elements": "Minimal object imagery (e.g., plant leaves) used as subtle background elements"
+        }
+    },
+    "layout_structure": {
+        "header": {
+            "type": "Fixed top navigation bar",
+            "elements": [
+                "Logo left-aligned",
+                "Nav links center-aligned",
+                "CTA button right-aligned with accent color"
+            ]
+        },
+        "hero_section": {
+            "alignment": "Left-aligned text",
+            "headline_style": "Large bold + italic serif mix",
+            "subtext_style": "Small sans-serif under headline",
+            "imagery_position": "Right-aligned decorative image",
+            "cta_button": "Text link or button with accent color"
+        },
+        "content_cards": {
+            "style": "Rounded corner cards with drop shadows",
+            "accent_elements": "Small accent icons or logos",
+            "grid_layout": "Two-column grid for secondary content"
+        }
+    },
+    "ui_elements": {
+        "buttons": {
+            "primary": {
+                "shape": "Rounded rectangle",
+                "background_color": "#00FF85",
+                "text_color": "#000000",
+                "hover_effect": "Slight darkening or shadow"
+            },
+            "link_buttons": {
+                "text_decoration": "Underline on hover",
+                "color": "#00FF85"
+            }
+        },
+        "icons": {
+            "style": "Minimal flat icons, often matching accent color"
+        }
+    },
+    "spacing": {
+        "section_padding": "80px top and bottom",
+        "content_max_width": "1200px",
+        "grid_gap": "24px"
+    },
+    "animations": {
+        "scroll_effects": "Subtle fade-in on scroll",
+        "hover_effects": "Slight scale-up for interactive elements"
+    }
+}

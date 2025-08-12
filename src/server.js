@@ -5,8 +5,62 @@ import crypto from 'crypto';
 import archiver from 'archiver';
 import { buildWebApp, buildWebAppWithLogs, getAppUrl, getAppFiles, getAppStats, deleteApp, getAppDetails } from './appBuilder.js';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
 dotenv.config();
+
+// Load design config and expose theme CSS helper
+const DESIGN_PATH = path.resolve(process.cwd(), 'design.json');
+let designConfig = null;
+try {
+  const raw = fs.readFileSync(DESIGN_PATH, 'utf-8');
+  designConfig = JSON.parse(raw);
+} catch (e) {
+  designConfig = null;
+}
+
+function themeCSS() {
+  const palette = designConfig?.design_style?.color_palette || {};
+  const spacing = designConfig?.spacing || {};
+  const primary = palette.primary || '#000000';
+  const secondary = palette.secondary || '#FFFFFF';
+  const accent = palette.accent || '#00FF85';
+  const neutral1 = (palette.neutral_tones && palette.neutral_tones[0]) || '#F7F7F7';
+  const neutral2 = (palette.neutral_tones && palette.neutral_tones[1]) || '#EAEAEA';
+  const contentMax = spacing.content_max_width || '1200px';
+  const gridGap = spacing.grid_gap || '24px';
+
+  return `
+:root{--color-primary:${primary};--color-secondary:${secondary};--color-accent:${accent};--color-neutral-1:${neutral1};--color-neutral-2:${neutral2};--content-max:${contentMax};--grid-gap:${gridGap}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Inter,system-ui,sans-serif;color:var(--color-primary);background:var(--color-neutral-1);line-height:1.5}
+a{color:var(--color-accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.container{max-width:var(--content-max);margin:0 auto;padding:0 24px}
+.card{background:var(--color-secondary);border:1px solid var(--color-neutral-2);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.06)}
+.btn{display:inline-block;border-radius:12px;padding:12px 20px;font-weight:600;border:1px solid var(--color-primary);background:transparent;color:var(--color-primary);cursor:pointer;transition:transform .15s ease, box-shadow .15s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn-primary{background:var(--color-accent);color:#000;border-color:var(--color-accent)}
+.btn-secondary{background:var(--color-secondary);color:var(--color-primary);border-color:var(--color-neutral-2)}
+.btn-danger{background:#e11d48;color:#fff;border-color:#e11d48}
+.input, textarea{background:var(--color-secondary);color:var(--color-primary);border:1px solid var(--color-neutral-2);border-radius:12px;padding:16px}
+.header{position:fixed;top:0;left:0;right:0;background:var(--color-secondary);border-bottom:1px solid var(--color-neutral-2);z-index:10}
+.header-inner{display:flex;align-items:center;justify-content:space-between;height:64px}
+.brand{font-weight:800}
+.nav{display:flex;gap:24px;align-items:center}
+.page{padding-top:80px}
+.hero{display:flex;gap:48px;align-items:center;padding:80px 0}
+.headline{font-weight:800;font-size:clamp(40px,8vw,72px);line-height:1.1;letter-spacing:-0.02em}
+.headline-italic{font-family:Georgia,'Times New Roman',serif;font-style:italic;font-weight:400}
+.subtext{color:#555;margin-top:12px;font-size:16px}
+.reveal{opacity:0;transform:translateY(8px);transition:all .4s ease}
+.reveal.visible{opacity:1;transform:none}
+.spinner{border:3px solid #f3f3f3;border-top:3px solid var(--color-accent);border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite}
+.hidden{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+`;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -104,143 +158,73 @@ app.get('/', (req, res) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Webbers - Web App Builder</title>
         <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            .container {
-                background: white;
-                padding: 3rem;
-                border-radius: 16px;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.1);
-                max-width: 600px;
-                width: 90%;
-                text-align: center;
-            }
-            h1 { 
-                color: #333; 
-                font-size: 2.5rem; 
-                margin-bottom: 0.5rem;
-                font-weight: 700;
-            }
-            .subtitle {
-                color: #666;
-                font-size: 1.1rem;
-                margin-bottom: 2rem;
-            }
-            textarea { 
-                width: 100%; 
-                height: 150px; 
-                padding: 1.5rem;
-                border: 2px solid #e1e5e9;
-                border-radius: 12px;
-                font-size: 16px;
-                resize: vertical;
-                font-family: inherit;
-                margin-bottom: 1.5rem;
-                transition: border-color 0.3s ease;
-            }
-            textarea:focus {
-                outline: none;
-                border-color: #667eea;
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-            }
-            button { 
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white; 
-                border: none; 
-                padding: 16px 32px; 
-                border-radius: 12px;
-                font-size: 16px;
-                font-weight: 600;
-                cursor: pointer;
-                width: 100%;
-                transition: transform 0.2s ease, box-shadow 0.2s ease;
-            }
-            button:hover { 
-                transform: translateY(-2px);
-                box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
-            }
-            button:disabled { 
-                background: #ccc; 
-                cursor: not-allowed;
-                transform: none;
-                box-shadow: none;
-            }
-            .examples {
-                margin-top: 2rem;
-                text-align: left;
-            }
-            .examples h3 {
-                color: #333;
-                margin-bottom: 1rem;
-                font-size: 1.1rem;
-            }
-            .example {
-                background: #f8f9fa;
-                padding: 0.75rem 1rem;
-                border-radius: 8px;
-                margin-bottom: 0.5rem;
-                font-size: 14px;
-                color: #555;
-                cursor: pointer;
-                transition: background-color 0.2s ease;
-            }
-            .example:hover {
-                background: #e9ecef;
-            }
+            ${themeCSS()}
+            .hero-form { margin-top: 24px; }
+            .examples { margin-top: 32px; }
+            .example { background: var(--color-neutral-1); border: 1px solid var(--color-neutral-2); padding: 12px 16px; border-radius: 10px; margin-bottom: 8px; font-size: 14px; color: #555; cursor: pointer; transition: background-color .2s ease; }
+            .example:hover { background: #f0f0f0; }
         </style>
     </head>
     <body>
-        <div class="container">
-            <h1>🚀 Webbers</h1>
-            <p class="subtitle">AI-powered web app builder. Describe your idea and watch it come to life!</p>
-            
-            <form id="promptForm">
-                <textarea 
-                    id="prompt" 
-                    placeholder="Describe the web app you want to build..."
-                    required
-                ></textarea>
-                <button type="submit" id="generateBtn">Generate Web App</button>
-            </form>
-            
-            <div class="examples">
-                <h3>💡 Example ideas:</h3>
-                <div class="example" onclick="fillExample('Create a simple calculator app with basic arithmetic operations')">
-                    Create a simple calculator app with basic arithmetic operations
-                </div>
-                <div class="example" onclick="fillExample('Build a to-do list app with add, delete, and mark complete functionality')">
-                    Build a to-do list app with add, delete, and mark complete functionality
-                </div>
-                <div class="example" onclick="fillExample('Make a weather app that shows current conditions for a city')">
-                    Make a weather app that shows current conditions for a city
-                </div>
-                <div class="example" onclick="fillExample('Create a simple color picker tool with hex and RGB values')">
-                    Create a simple color picker tool with hex and RGB values
-                </div>
+        <header class="header">
+          <div class="container header-inner">
+            <div class="brand">🚀 Webbers</div>
+            <nav class="nav">
+              <a href="/debug">Dashboard</a>
+            </nav>
+            <div>
+              <a href="/" class="btn btn-primary">New App</a>
             </div>
-        </div>
+          </div>
+        </header>
+        <main class="page">
+          <div class="container">
+            <section class="hero reveal">
+              <div style="flex:1">
+                <h1 class="headline">
+                  Build modern <span class="headline-italic">B2B</span> web apps with AI
+                </h1>
+                <p class="subtext">Describe your idea and watch it come to life.</p>
+                <div class="card hero-form" style="padding:24px;">
+                  <form id="promptForm">
+                    <textarea id="prompt" class="input" placeholder="Describe the web app you want to build..." required style="width:100%; height:150px; resize:vertical;"></textarea>
+                    <button type="submit" id="generateBtn" class="btn btn-primary" style="width:100%; margin-top:12px;">Generate Web App</button>
+                  </form>
+                </div>
+                <div class="examples reveal">
+                  <h3 style="margin-bottom:12px;">💡 Example ideas:</h3>
+                  <div class="example" onclick="fillExample('Create a simple calculator app with basic arithmetic operations')">
+                      Create a simple calculator app with basic arithmetic operations
+                  </div>
+                  <div class="example" onclick="fillExample('Build a to-do list app with add, delete, and mark complete functionality')">
+                      Build a to-do list app with add, delete, and mark complete functionality
+                  </div>
+                  <div class="example" onclick="fillExample('Make a weather app that shows current conditions for a city')">
+                      Make a weather app that shows current conditions for a city
+                  </div>
+                  <div class="example" onclick="fillExample('Create a simple color picker tool with hex and RGB values')">
+                      Create a simple color picker tool with hex and RGB values
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
 
         <script>
             function fillExample(text) {
                 document.getElementById('prompt').value = text;
             }
-            
             document.getElementById('promptForm').addEventListener('submit', (e) => {
                 e.preventDefault();
                 const prompt = document.getElementById('prompt').value.trim();
-                
                 if (prompt) {
-                    // Redirect to build page with prompt as URL parameter
                     window.location.href = \`/build?prompt=\${encodeURIComponent(prompt)}\`;
                 }
             });
+            const onIntersect = (entries) => { entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }); };
+            const observer = new IntersectionObserver(onIntersect, { threshold: 0.1 });
+            document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
         </script>
     </body>
     </html>
@@ -259,131 +243,30 @@ app.get('/build', (req, res) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Building App - Webbers</title>
         <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                height: 100vh;
-                background: #f5f5f5;
-            }
-            .header {
-                background: white;
-                padding: 1rem 2rem;
-                border-bottom: 1px solid #ddd;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-            }
-            h1 { color: #333; font-size: 1.5rem; }
-            .back-btn {
-                background: #f8f9fa;
-                border: 1px solid #dee2e6;
-                color: #333;
-                padding: 8px 16px;
-                border-radius: 6px;
-                text-decoration: none;
-                font-size: 14px;
-                transition: background-color 0.2s ease;
-            }
-            .back-btn:hover {
-                background: #e9ecef;
-            }
-            .main-container {
-                display: flex;
-                height: calc(100vh - 80px);
-            }
-            .left-panel {
-                width: 400px;
-                background: white;
-                border-right: 1px solid #ddd;
-                display: flex;
-                flex-direction: column;
-            }
-            .prompt-section {
-                padding: 1.5rem;
-                border-bottom: 1px solid #ddd;
-                background: #f8f9fa;
-            }
-            .prompt-text {
-                font-size: 14px;
-                color: #333;
-                line-height: 1.4;
-                margin: 0;
-            }
-            .logs-section {
-                flex: 1;
-                overflow-y: auto;
-                padding: 1.5rem;
-                background: white;
-            }
-            .log-entry {
-                margin-bottom: 1rem;
-                padding: 0.75rem 1rem;
-                border-radius: 8px;
-                font-size: 14px;
-                line-height: 1.4;
-            }
-            .log-info { 
-                background: #e3f2fd; 
-                color: #1565c0;
-                border-left: 4px solid #2196f3;
-            }
-            .log-success { 
-                background: #e8f5e8; 
-                color: #2e7d32;
-                border-left: 4px solid #4caf50;
-            }
-            .log-error { 
-                background: #ffebee; 
-                color: #c62828;
-                border-left: 4px solid #f44336;
-            }
-            .log-time {
-                font-size: 12px;
-                opacity: 0.7;
-                margin-bottom: 0.25rem;
-            }
-            .right-panel {
-                flex: 1;
-                background: white;
-                position: relative;
-            }
-            .app-preview {
-                width: 100%;
-                height: 100%;
-                border: none;
-            }
-            .preview-placeholder {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                height: 100%;
-                color: #666;
-                font-size: 1.2rem;
-                text-align: center;
-                padding: 2rem;
-                flex-direction: column;
-            }
-            .spinner {
-                width: 40px;
-                height: 40px;
-                border: 3px solid #f3f3f3;
-                border-top: 3px solid #667eea;
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-                margin-bottom: 1rem;
-            }
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-            .hidden { display: none; }
+            ${themeCSS()}
+            body { background: var(--color-neutral-1); }
+            .header { position: static; }
+            .main-container { display: flex; height: calc(100vh - 64px); }
+            .left-panel { width: 420px; background: var(--color-secondary); border-right: 1px solid var(--color-neutral-2); display: flex; flex-direction: column; }
+            .prompt-section { padding: 16px; border-bottom: 1px solid var(--color-neutral-2); background: var(--color-secondary); }
+            .prompt-text { font-size: 14px; color: #333; line-height: 1.4; margin: 0; }
+            .logs-section { flex: 1; overflow-y: auto; padding: 16px; background: var(--color-secondary); }
+            .log-entry { margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.4; }
+            .log-info { background: #e6fffb; color: #0f766e; border-left: 4px solid #2dd4bf; }
+            .log-success { background: #ecfdf5; color: #065f46; border-left: 4px solid #10b981; }
+            .log-error { background: #fef2f2; color: #b91c1c; border-left: 4px solid #ef4444; }
+            .log-time { font-size: 12px; opacity: 0.7; margin-bottom: 4px; }
+            .right-panel { flex: 1; background: var(--color-secondary); position: relative; }
+            .app-preview { width: 100%; height: 100%; border: none; }
+            .preview-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #666; font-size: 1.2rem; text-align: center; padding: 2rem; flex-direction: column; }
         </style>
     </head>
     <body>
         <div class="header">
-            <h1>🚀 Webbers</h1>
-            <a href="/" class="back-btn">← New App</a>
+          <div class="container header-inner">
+            <h1 style="font-size:18px;">🚀 Webbers</h1>
+            <a href="/" class="btn btn-secondary">← New App</a>
+          </div>
         </div>
         
         <div class="main-container">
@@ -401,7 +284,7 @@ app.get('/build', (req, res) => {
             
             <div class="right-panel">
                 <div class="preview-placeholder" id="placeholder">
-                    <div class="spinner"></div>
+                    <div class="spinner" style="margin-bottom:12px;"></div>
                     <div>Building your web app...</div>
                 </div>
                 <iframe class="app-preview hidden" id="appFrame"></iframe>
@@ -559,115 +442,39 @@ app.get('/debug', (req, res) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Webbers - Apps Dashboard</title>
         <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: #f5f5f5;
-                min-height: 100vh;
-            }
-            .header {
-                background: white;
-                padding: 2rem;
-                border-bottom: 1px solid #ddd;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            }
-            h1 { color: #333; font-size: 2rem; margin-bottom: 0.5rem; }
-            .subtitle { color: #666; font-size: 1.1rem; }
-            .stats {
-                display: flex;
-                gap: 1rem;
-                margin: 1rem 0;
-            }
-            .stat {
-                background: #e3f2fd;
-                color: #1565c0;
-                padding: 0.5rem 1rem;
-                border-radius: 8px;
-                font-size: 14px;
-            }
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-                padding: 2rem;
-            }
-            .apps-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                gap: 1.5rem;
-                margin-top: 2rem;
-            }
-            .app-card {
-                background: white;
-                border-radius: 12px;
-                padding: 1.5rem;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                transition: transform 0.2s ease, box-shadow 0.2s ease;
-            }
-            .app-card:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            }
-            .app-id {
-                font-family: 'Monaco', 'Menlo', monospace;
-                font-size: 18px;
-                font-weight: 600;
-                color: #333;
-                margin-bottom: 0.5rem;
-            }
-            .app-meta {
-                font-size: 12px;
-                color: #666;
-                margin-bottom: 1rem;
-            }
-            .app-actions {
-                display: flex;
-                gap: 0.5rem;
-                flex-wrap: wrap;
-            }
-            .btn {
-                padding: 6px 12px;
-                border: none;
-                border-radius: 6px;
-                font-size: 12px;
-                cursor: pointer;
-                text-decoration: none;
-                display: inline-block;
-                transition: background-color 0.2s ease;
-            }
-            .btn-primary { background: #007AFF; color: white; }
-            .btn-secondary { background: #f8f9fa; color: #333; border: 1px solid #dee2e6; }
-            .btn-danger { background: #dc3545; color: white; }
-            .btn:hover { opacity: 0.8; }
-            .empty-state {
-                text-align: center;
-                padding: 4rem 2rem;
-                color: #666;
-            }
-            .refresh-btn {
-                background: #28a745;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 6px;
-                cursor: pointer;
-                margin-left: 1rem;
-            }
+            ${themeCSS()}
+            body { background: var(--color-neutral-1); }
+            .header { position: static; }
+            .stats { display: flex; gap: 12px; margin: 12px 0; }
+            .stat { background: var(--color-secondary); color: var(--color-primary); padding: 8px 12px; border-radius: 10px; border: 1px solid var(--color-neutral-2); font-size: 14px; }
+            .apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--grid-gap); margin-top: 24px; }
+            .app-card { background: var(--color-secondary); border: 1px solid var(--color-neutral-2); border-radius: 12px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.06); transition: transform .15s ease, box-shadow .15s ease; }
+            .app-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,.08); }
+            .app-id { font-family: 'Monaco', 'Menlo', monospace; font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+            .app-meta { font-size: 12px; color: #666; margin-bottom: 12px; }
+            .app-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+            .refresh-btn { margin-left: 8px; }
+            .empty-state { text-align: center; padding: 48px 24px; color: #666; }
         </style>
     </head>
     <body>
         <div class="header">
-            <div class="container">
-                <h1>🚀 Webbers Dashboard</h1>
-                <p class="subtitle">Manage your generated web apps</p>
-                <div class="stats">
-                    <div class="stat">📱 ${stats.totalApps} Active Apps</div>
-                    <div class="stat">📊 ${Object.keys(global.buildStreams || {}).length} Building</div>
-                    <div class="stat">🕐 Auto-cleanup: 1 hour</div>
-                </div>
-                <div style="margin-top: 1rem;">
-                    <a href="/" class="btn btn-primary">Create New App</a>
-                    <button onclick="location.reload()" class="refresh-btn">Refresh</button>
-                </div>
+          <div class="container header-inner">
+            <div class="brand">🚀 Webbers Dashboard</div>
+            <div><a href="/" class="btn btn-primary">Create New App</a></div>
+          </div>
+        </div>
+        
+        <div class="container">
+            <p class="subtext">Manage your generated web apps</p>
+            <div class="stats">
+                <div class="stat">📱 ${stats.totalApps} Active Apps</div>
+                <div class="stat">📊 ${Object.keys(global.buildStreams || {}).length} Building</div>
+                <div class="stat">🕐 Auto-cleanup: 1 hour</div>
+            </div>
+            <div style="margin-top: 12px;">
+                <a href="/" class="btn btn-primary">Create New App</a>
+                <button onclick="location.reload()" class="btn btn-secondary refresh-btn">Refresh</button>
             </div>
         </div>
         
@@ -805,118 +612,29 @@ app.get('/debug/apps/:appId/code', (req, res) => {
         <title>Code Viewer - ${appId}</title>
         <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet">
         <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: #f5f5f5;
-                min-height: 100vh;
-            }
-            .header {
-                background: white;
-                padding: 1.5rem 2rem;
-                border-bottom: 1px solid #ddd;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-            }
-            .header-left h1 {
-                color: #333;
-                font-size: 1.5rem;
-                margin-bottom: 0.25rem;
-            }
-            .header-left .subtitle {
-                color: #666;
-                font-size: 14px;
-            }
-            .header-actions {
-                display: flex;
-                gap: 0.5rem;
-            }
-            .btn {
-                padding: 8px 16px;
-                border: none;
-                border-radius: 6px;
-                font-size: 14px;
-                cursor: pointer;
-                text-decoration: none;
-                display: inline-block;
-                transition: background-color 0.2s ease;
-            }
-            .btn-primary { background: #007AFF; color: white; }
-            .btn-secondary { background: #f8f9fa; color: #333; border: 1px solid #dee2e6; }
-            .btn:hover { opacity: 0.8; }
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-                padding: 2rem;
-            }
-            .prompt-section {
-                background: white;
-                padding: 1.5rem;
-                border-radius: 8px;
-                margin-bottom: 2rem;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            }
-            .prompt-section h3 {
-                color: #333;
-                margin-bottom: 0.5rem;
-                font-size: 1.1rem;
-            }
-            .prompt-text {
-                color: #555;
-                font-style: italic;
-                line-height: 1.5;
-            }
-            .files-section {
-                display: grid;
-                gap: 2rem;
-            }
-            .file-card {
-                background: white;
-                border-radius: 8px;
-                overflow: hidden;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            }
-            .file-header {
-                background: #f8f9fa;
-                padding: 1rem 1.5rem;
-                border-bottom: 1px solid #dee2e6;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-            }
-            .file-name {
-                font-family: 'Monaco', 'Menlo', monospace;
-                font-weight: 600;
-                color: #333;
-            }
-            .copy-btn {
-                background: #28a745;
-                color: white;
-                border: none;
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 12px;
-                cursor: pointer;
-            }
-            .file-content {
-                max-height: 500px;
-                overflow-y: auto;
-            }
-            .file-content pre {
-                margin: 0 !important;
-                padding: 1.5rem !important;
-                background: #fafafa !important;
-            }
-            .file-content code {
-                font-size: 13px;
-                line-height: 1.5;
-            }
+            ${themeCSS()}
+            body { background: var(--color-neutral-1); }
+            .header { position: static; }
+            .header-left h1 { font-size: 20px; margin: 0; }
+            .header-left .subtitle { color: #666; font-size: 14px; }
+            .header-actions { display: flex; gap: 8px; }
+            .container { max-width: var(--content-max); margin: 0 auto; padding: 24px; }
+            .prompt-section { background: var(--color-secondary); padding: 16px; border-radius: 12px; margin-bottom: 24px; border: 1px solid var(--color-neutral-2); box-shadow: 0 2px 12px rgba(0,0,0,.05); }
+            .prompt-section h3 { margin: 0 0 8px; font-size: 16px; }
+            .prompt-text { color: #555; font-style: italic; line-height: 1.5; }
+            .files-section { display: grid; gap: 24px; }
+            .file-card { background: var(--color-secondary); border-radius: 12px; overflow: hidden; border: 1px solid var(--color-neutral-2); box-shadow: 0 2px 12px rgba(0,0,0,.05); }
+            .file-header { background: #fafafa; padding: 12px 16px; border-bottom: 1px solid var(--color-neutral-2); display: flex; align-items: center; justify-content: space-between; }
+            .file-name { font-family: 'Monaco', 'Menlo', monospace; font-weight: 600; }
+            .copy-btn { background: var(--color-accent); color: #000; border: 1px solid var(--color-accent); padding: 6px 10px; border-radius: 8px; font-size: 12px; cursor: pointer; }
+            .file-content { max-height: 500px; overflow-y: auto; }
+            .file-content pre { margin: 0 !important; padding: 16px !important; background: #fafafa !important; }
+            .file-content code { font-size: 13px; line-height: 1.5; }
         </style>
     </head>
     <body>
         <div class="header">
+          <div class="container header-inner">
             <div class="header-left">
                 <h1>📝 Code Viewer</h1>
                 <div class="subtitle">App ID: ${appId} | Created: ${new Date(appDetails.createdAt).toLocaleString()}</div>
@@ -926,6 +644,7 @@ app.get('/debug/apps/:appId/code', (req, res) => {
                 <a href="/debug/apps/${appId}/download" class="btn btn-secondary">Download</a>
                 <a href="/debug" class="btn btn-secondary">← Dashboard</a>
             </div>
+          </div>
         </div>
         
         <div class="container">
@@ -964,10 +683,12 @@ app.get('/debug/apps/:appId/code', (req, res) => {
                     const btn = event.target;
                     const originalText = btn.textContent;
                     btn.textContent = 'Copied!';
-                    btn.style.background = '#28a745';
+                    btn.style.background = 'var(--color-accent)';
+                    btn.style.color = '#000';
                     setTimeout(() => {
                         btn.textContent = originalText;
-                        btn.style.background = '#28a745';
+                        btn.style.background = 'var(--color-accent)';
+                        btn.style.color = '#000';
                     }, 2000);
                 }).catch(err => {
                     alert('Failed to copy to clipboard');
