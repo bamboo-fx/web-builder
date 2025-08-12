@@ -2,6 +2,33 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
 
+function sendLog(appId, message, type = 'log') {
+  if (global.buildStreams && global.buildStreams[appId]) {
+    global.buildStreams[appId].write(`data: ${JSON.stringify({ type, message })}\n\n`);
+  }
+  console.log(`[${appId}] ${message}`);
+}
+
+export async function buildWebAppWithLogs(prompt, appId) {
+  try {
+    sendLog(appId, 'Initializing OpenAI client...');
+    
+    const result = await buildWebApp(prompt, appId);
+    
+    if (result.success) {
+      sendLog(appId, 'Web app built successfully!', 'success');
+      sendLog(appId, JSON.stringify({ type: 'complete', appId }), 'complete');
+    } else {
+      sendLog(appId, `Error: ${result.error}`, 'error');
+    }
+    
+    return result;
+  } catch (error) {
+    sendLog(appId, `Build failed: ${error.message}`, 'error');
+    return { success: false, error: error.message };
+  }
+}
+
 export async function buildWebApp(prompt, appId) {
   const systemPrompt = `You are a web development expert. Build a complete web application based on the user's requirements.
 
@@ -19,12 +46,14 @@ Create clean, modern HTML, CSS, and JavaScript code. Structure your response wit
 Make the app fully functional and ready to run. Use modern web standards and ensure responsive design.`;
 
   try {
-    console.log(`Building web app for prompt: "${prompt}"`);
+    sendLog(appId, `Building web app for prompt: "${prompt}"`);
     
+    sendLog(appId, 'Connecting to OpenAI...');
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
 
+    sendLog(appId, 'Sending request to GPT-4o...');
     const completion = await client.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -35,12 +64,15 @@ Make the app fully functional and ready to run. Use modern web standards and ens
       temperature: 0.7,
     });
 
+    sendLog(appId, 'Received response from OpenAI, processing files...');
     const response = completion.choices[0].message.content;
 
     // Extract files from response
     const files = extractFiles(response);
+    sendLog(appId, `Extracted ${Object.keys(files).length} files from response`);
     
     // Create app directory
+    sendLog(appId, 'Creating app directory...');
     const appDir = path.join('generated-apps', appId);
     if (!fs.existsSync('generated-apps')) {
       fs.mkdirSync('generated-apps');
@@ -50,9 +82,13 @@ Make the app fully functional and ready to run. Use modern web standards and ens
     }
 
     // Write files
+    sendLog(appId, 'Writing files to disk...');
     for (const [filename, content] of Object.entries(files)) {
       fs.writeFileSync(path.join(appDir, filename), content);
+      sendLog(appId, `✓ Created ${filename}`);
     }
+    
+    sendLog(appId, 'App generation completed!');
     
     return {
       success: true,
@@ -62,7 +98,8 @@ Make the app fully functional and ready to run. Use modern web standards and ens
     };
 
   } catch (error) {
-    console.error("Error building web app:", error.message);
+    const errorMsg = `Error building web app: ${error.message}`;
+    sendLog(appId, errorMsg, 'error');
     return {
       success: false,
       error: error.message,
