@@ -5,9 +5,6 @@
 # Dependencies
 node_modules/
 
-# Generated apps
-generated-apps/
-
 # Logs
 *.log
 npm-debug.log*
@@ -25,3 +22,6 @@ Thumbs.db
 # Build output
 dist/
 build/
+
+# Legacy generated apps directory (no longer used - apps now stored in memory)
+generated-apps/

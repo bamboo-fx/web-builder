@@ -1,6 +1,11 @@
 import OpenAI from 'openai';
-import fs from 'fs';
-import path from 'path';
+import crypto from 'crypto';
+
+// In-memory storage for apps (much more scalable)
+const apps = new Map();
+const APP_EXPIRY_TIME = 60 * 60 * 1000; // 1 hour
+const MAX_APPS_TOTAL = 1000; // Global limit
+const MAX_APPS_PER_IP = 10; // Per IP limit
 
 function sendLog(appId, message, type = 'log') {
   if (global.buildStreams && global.buildStreams[appId]) {
@@ -9,15 +14,88 @@ function sendLog(appId, message, type = 'log') {
   console.log(`[${appId}] ${message}`);
 }
 
-export async function buildWebAppWithLogs(prompt, appId) {
+// Cleanup expired apps
+function cleanupExpiredApps() {
+  const now = Date.now();
+  let cleaned = 0;
+  
+  for (const [appId, appData] of apps.entries()) {
+    if (now - appData.createdAt > APP_EXPIRY_TIME) {
+      apps.delete(appId);
+      cleaned++;
+    }
+  }
+  
+  if (cleaned > 0) {
+    console.log(`🧹 Cleaned up ${cleaned} expired apps. Active apps: ${apps.size}`);
+  }
+}
+
+// Auto cleanup every 10 minutes
+setInterval(cleanupExpiredApps, 10 * 60 * 1000);
+
+// Generate proper app ID
+function generateAppId() {
+  return crypto.randomUUID().slice(0, 8); // Short, unique ID
+}
+
+// Store app in memory
+function storeApp(appId, files, prompt, userIP) {
+  const appData = {
+    appId,
+    files,
+    prompt,
+    userIP,
+    createdAt: Date.now(),
+    lastAccessed: Date.now()
+  };
+  
+  apps.set(appId, appData);
+  console.log(`📱 Stored app ${appId}. Total apps: ${apps.size}`);
+  return appData;
+}
+
+// Get app from memory
+export function getApp(appId) {
+  const app = apps.get(appId);
+  if (app) {
+    app.lastAccessed = Date.now(); // Update access time
+    return app;
+  }
+  return null;
+}
+
+// Check limits before creating app
+function checkLimits(userIP) {
+  // Cleanup first
+  cleanupExpiredApps();
+  
+  // Check global limit
+  if (apps.size >= MAX_APPS_TOTAL) {
+    throw new Error('Server capacity reached. Please try again later.');
+  }
+  
+  // Check per-IP limit
+  const userApps = Array.from(apps.values()).filter(app => app.userIP === userIP);
+  if (userApps.length >= MAX_APPS_PER_IP) {
+    throw new Error(`You have reached the limit of ${MAX_APPS_PER_IP} apps. Please wait for them to expire.`);
+  }
+}
+
+export async function buildWebAppWithLogs(prompt, userIP, predefinedAppId = null) {
+  const appId = predefinedAppId || generateAppId();
+  
   try {
+    sendLog(appId, 'Checking resource limits...');
+    checkLimits(userIP);
+    
     sendLog(appId, 'Initializing OpenAI client...');
     
-    const result = await buildWebApp(prompt, appId);
+    const result = await buildWebApp(prompt, appId, userIP);
     
     if (result.success) {
       sendLog(appId, 'Web app built successfully!', 'success');
-      sendLog(appId, JSON.stringify({ type: 'complete', appId }), 'complete');
+      sendLog(appId, `App completed with ID: ${appId}`, 'complete');
     } else {
       sendLog(appId, `Error: ${result.error}`, 'error');
     }
@@ -25,11 +103,11 @@ export async function buildWebAppWithLogs(prompt, appId) {
     return result;
   } catch (error) {
     sendLog(appId, `Build failed: ${error.message}`, 'error');
-    return { success: false, error: error.message };
+    return { success: false, error: error.message, appId };
   }
 }
 
-export async function buildWebApp(prompt, appId) {
+export async function buildWebApp(prompt, appId, userIP) {
   const systemPrompt = `You are a web development expert. Build a complete web application based on the user's requirements.
 
 Create clean, modern HTML, CSS, and JavaScript code. Structure your response with clear file separations:
@@ -71,30 +149,15 @@ Make the app fully functional and ready to run. Use modern web standards and ens
     const files = extractFiles(response);
     sendLog(appId, `Extracted ${Object.keys(files).length} files from response`);
     
-    // Create app directory
-    sendLog(appId, 'Creating app directory...');
-    const appDir = path.join('generated-apps', appId);
-    if (!fs.existsSync('generated-apps')) {
-      fs.mkdirSync('generated-apps');
-    }
-    if (!fs.existsSync(appDir)) {
-      fs.mkdirSync(appDir);
-    }
-
-    // Write files
-    sendLog(appId, 'Writing files to disk...');
-    for (const [filename, content] of Object.entries(files)) {
-      fs.writeFileSync(path.join(appDir, filename), content);
-      sendLog(appId, `✓ Created ${filename}`);
-    }
+    sendLog(appId, 'Storing app in memory...');
+    storeApp(appId, files, prompt, userIP);
     
     sendLog(appId, 'App generation completed!');
     
     return {
       success: true,
       appId,
-      files: Object.keys(files),
-      response
+      files: Object.keys(files)
     };
 
   } catch (error) {
@@ -103,7 +166,8 @@ Make the app fully functional and ready to run. Use modern web standards and ens
     return {
       success: false,
       error: error.message,
-      prompt
+      prompt,
+      appId
     };
   }
 }

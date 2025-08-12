@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import { buildWebApp, buildWebAppWithLogs } from './appBuilder.js';
+import crypto from 'crypto';
+import { buildWebApp, buildWebAppWithLogs, getApp } from './appBuilder.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -13,8 +14,57 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files from generated-apps directory
-app.use('/apps', express.static('generated-apps'));
+// Get user IP helper
+function getUserIP(req) {
+  return req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
+}
+
+// Dynamic app serving endpoints (replaces static file serving)
+app.get('/apps/:appId/', (req, res) => {
+  const { appId } = req.params;
+  const app = getApp(appId);
+  
+  if (!app) {
+    return res.status(404).send(`
+      <div style="font-family: system-ui; text-align: center; margin-top: 50px;">
+        <h2>App Not Found</h2>
+        <p>This app may have expired or doesn't exist.</p>
+        <a href="/" style="color: #007AFF;">← Create New App</a>
+      </div>
+    `);
+  }
+  
+  // Serve the HTML file
+  const html = app.files['index.html'] || '<h1>No HTML file found</h1>';
+  res.setHeader('Content-Type', 'text/html');
+  res.send(html);
+});
+
+app.get('/apps/:appId/:filename', (req, res) => {
+  const { appId, filename } = req.params;
+  const app = getApp(appId);
+  
+  if (!app) {
+    return res.status(404).send('App not found or expired');
+  }
+  
+  const fileContent = app.files[filename];
+  if (!fileContent) {
+    return res.status(404).send('File not found');
+  }
+  
+  // Set appropriate content type
+  const ext = path.extname(filename);
+  const contentTypes = {
+    '.html': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.json': 'application/json'
+  };
+  
+  res.setHeader('Content-Type', contentTypes[ext] || 'text/plain');
+  res.send(fileContent);
+});
 
 // Front page with prompt input
 app.get('/', (req, res) => {
@@ -379,19 +429,21 @@ app.get('/build', (req, res) => {
                     const data = await response.json();
                     
                     if (data.success && data.building) {
+                        const currentAppId = data.appId;
+                        
                         // Connect to logs stream
-                        eventSource = new EventSource(\`/build-stream/\${data.appId}\`);
+                        eventSource = new EventSource(\`/build-stream/\${currentAppId}\`);
                         
                         eventSource.onmessage = function(event) {
                             const logData = JSON.parse(event.data);
                             
                             if (logData.type === 'complete') {
-                                const completeData = JSON.parse(logData.message);
                                 // Load the app in iframe
-                                appFrame.src = \`/apps/\${completeData.appId}/\`;
+                                appFrame.src = \`/apps/\${currentAppId}/\`;
                                 appFrame.classList.remove('hidden');
                                 placeholder.classList.add('hidden');
                                 eventSource.close();
+                                addLog(logData.message, logData.type);
                             } else {
                                 addLog(logData.message, logData.type);
                             }
@@ -414,7 +466,7 @@ app.get('/build', (req, res) => {
   `);
 });
 
-// Build web app endpoint with Server-Sent Events for real-time logs
+// Legacy build endpoint (kept for compatibility)
 app.post('/build', async (req, res) => {
   const { prompt } = req.body;
   
@@ -429,10 +481,10 @@ app.post('/build', async (req, res) => {
     });
   }
 
-  const appId = Date.now().toString();
+  const userIP = getUserIP(req);
   
   try {
-    const result = await buildWebApp(prompt, appId);
+    const result = await buildWebAppWithLogs(prompt, userIP);
     res.json(result);
   } catch (error) {
     console.error('Build error:', error);
@@ -467,6 +519,37 @@ app.get('/build-stream/:appId', (req, res) => {
   });
 });
 
+// Debug endpoint to see apps in memory
+app.get('/debug/apps', (req, res) => {
+  res.json({
+    message: "Check server logs for app data, or visit /debug/apps/:appId to test specific apps",
+    totalStreams: Object.keys(global.buildStreams || {}).length,
+    activeStreams: Object.keys(global.buildStreams || {}),
+    serverTime: new Date().toISOString(),
+    instructions: "Look at terminal logs for completed apps, then visit /debug/apps/[APP_ID] to inspect"
+  });
+});
+
+app.get('/debug/apps/:appId', (req, res) => {
+  const { appId } = req.params;
+  const app = getApp(appId);
+  
+  if (!app) {
+    return res.json({ error: 'App not found', appId });
+  }
+  
+  res.json({
+    appId: app.appId,
+    prompt: app.prompt,
+    userIP: app.userIP,
+    createdAt: new Date(app.createdAt).toISOString(),
+    lastAccessed: new Date(app.lastAccessed).toISOString(),
+    files: Object.keys(app.files),
+    hasIndexHtml: !!app.files['index.html'],
+    indexHtmlLength: app.files['index.html']?.length || 0
+  });
+});
+
 // Build web app with streaming logs
 app.post('/build-with-logs', async (req, res) => {
   const { prompt } = req.body;
@@ -482,20 +565,29 @@ app.post('/build-with-logs', async (req, res) => {
     });
   }
 
-  const appId = Date.now().toString();
+  const userIP = getUserIP(req);
   
-  // Send app ID immediately so client can start listening to logs
+  // Generate app ID immediately and return it
+  const appId = crypto.randomUUID().slice(0, 8);
+  
+  // Return the app ID immediately so client can connect to stream
   res.json({ success: true, appId, building: true });
   
   // Start building in background
-  buildWebAppWithLogs(prompt, appId);
+  setTimeout(() => {
+    buildWebAppWithLogs(prompt, userIP, appId);
+  }, 100); // Small delay to ensure client connects to stream first
 });
 
 app.listen(PORT, () => {
     console.log(`🚀 Webbers server running at http://localhost:${PORT}`);
+    console.log('📱 In-memory app storage (scalable & fast)');
+    console.log('🧹 Auto-cleanup: Apps expire after 1 hour');
+    console.log('🛡️  Rate limits: 10 apps per IP, 1000 total');
+    
     if (!process.env.OPENAI_API_KEY) {
-    console.log('⚠️  Warning: OPENAI_API_KEY not found in environment variables');
-    console.log('   Please create a .env file with your API key:');
-    console.log('   OPENAI_API_KEY=your_openai_api_key_here');
-  }
+        console.log('⚠️  Warning: OPENAI_API_KEY not found in environment variables');
+        console.log('   Please create a .env file with your API key:');
+        console.log('   OPENAI_API_KEY=your_openai_api_key_here');
+    }
 });
